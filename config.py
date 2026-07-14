@@ -1,0 +1,5 @@
+LITMOS_API_KEY = "f4ea2144-5c48-48df-b445-e809adf82970"
+LITMOS_DOMAIN = "successkpi.litmos.com"
+EMAIL_FROM = "scojocea1@gmail.com"
+EMAIL_PASSWORD = "ypfq uisf veio gaar"
+EMAIL_TO = "scojocea-neagoie@successkpi.com"
