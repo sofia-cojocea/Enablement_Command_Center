@@ -12,8 +12,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import config
     API_KEY = config.LITMOS_API_KEY
-except:
-    print("ERROR: config.py not found.")
+except ImportError:
+    API_KEY = None
+
+API_KEY = os.environ.get('LITMOS_API_KEY') or API_KEY
+
+if not API_KEY:
+    print("ERROR: No API key found. Set LITMOS_API_KEY env var or provide config.py.")
     sys.exit(1)
 
 BASE           = "https://api.litmos.com/v1.svc"
@@ -116,6 +121,16 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
     if not username.endswith('@successkpi.com'):
         print(f"  Skipping {name} — not a successkpi.com account")
         continue
+
+    # Check if user is active in Litmos
+    user_record = get(f"users/{uid}")
+    time.sleep(0.25)
+    if isinstance(user_record, list):
+        user_record = user_record[0] if user_record else {}
+    if not user_record.get('Active', True):
+        print(f"  Skipping {name} — inactive in Litmos")
+        continue
+
     print(f"  [{i+1}/{len(all_user_ids)}] {name}")
 
     user_courses = get(f"users/{uid}/courses")
