@@ -18,7 +18,7 @@ except:
 
 BASE           = "https://api.litmos.com/v1.svc"
 HEADERS        = {"apikey": API_KEY, "Accept": "application/json"}
-OUTPUT_FILE    = "dashboard.html"
+OUTPUT_FILE    = "index.html"
 COMPLETED_FILE = "completed.json"
 
 PATHS = [
