@@ -10,8 +10,8 @@ from email.mime.text import MIMEText
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
-    import config
-    API_KEY = config.LITMOS_API_KEY
+    import os
+    LITMOS_API_KEY = os.environ.get('LITMOS_API_KEY') or LITMOS_API_KEY
 except:
     print("ERROR: config.py not found.")
     sys.exit(1)

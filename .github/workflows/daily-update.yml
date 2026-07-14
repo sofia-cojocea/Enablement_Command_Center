@@ -1,0 +1,33 @@
+name: Daily Dashboard Update
+
+on:
+  schedule:
+    - cron: '0 15 * * *'  
+  workflow_dispatch:      
+
+jobs:
+  update-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run dashboard script
+        env:
+          LITMOS_API_KEY: ${{ secrets.LITMOS_API_KEY }}
+        run: python generate_dashboard.py
+
+      - name: Commit and push updated dashboard
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add index.html
+          git commit -m "daily dashboard update" || echo "No changes"
+          git push
