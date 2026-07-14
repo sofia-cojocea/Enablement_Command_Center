@@ -10,8 +10,8 @@ from email.mime.text import MIMEText
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
-    import os
-    LITMOS_API_KEY = os.environ.get('LITMOS_API_KEY') or LITMOS_API_KEY
+    import config
+    API_KEY = config.LITMOS_API_KEY
 except:
     print("ERROR: config.py not found.")
     sys.exit(1)
@@ -112,6 +112,10 @@ print("Fetching per-user course progress...")
 all_learners = []
 for i, (uid, u) in enumerate(all_user_ids.items()):
     name = f"{u['FirstName']} {u['LastName']}".strip()
+    username = u.get('UserName', '').strip().lower()
+    if not username.endswith('@successkpi.com'):
+        print(f"  Skipping {name} — not a successkpi.com account")
+        continue
     print(f"  [{i+1}/{len(all_user_ids)}] {name}")
 
     user_courses = get(f"users/{uid}/courses")
