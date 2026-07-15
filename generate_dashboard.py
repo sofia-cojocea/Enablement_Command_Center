@@ -125,14 +125,6 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
     # Check if user is active in Litmos
     user_record = get(f"users/{uid}")
     time.sleep(0.25)
-    if isinstance(user_record, list):
-        user_record = user_record[0] if user_record else {}
-    if isinstance(user_record, str) or not isinstance(user_record, dict):
-        print(f"  Skipping {name} — unexpected user record format")
-        continue
-    if not user_record.get('Active', True):
-        print(f"  Skipping {name} — inactive in Litmos")
-        continue
 
     print(f"  [{i+1}/{len(all_user_ids)}] {name}")
 
