@@ -3,6 +3,7 @@ import urllib.error
 import json
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import sys, os
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -31,7 +32,7 @@ PATHS = [
     ("7WKO7vtviOg1", "Generative AI Capabilities",     10),
 ]
 
-COHORT_DAYS = 10  # expected pace based on this window
+COHORT_DAYS = 10
 
 if os.path.exists(COMPLETED_FILE):
     with open(COMPLETED_FILE) as f:
@@ -80,7 +81,6 @@ def login_label(days):
     if days < 9999: return f"{days} days ago"
     return "Never"
 
-# ── Pull all path metadata ─────────────────────────────────────────────────
 print("Fetching course lists...")
 path_meta = {}
 for path_id, path_name, cohort_days in PATHS:
@@ -95,7 +95,6 @@ for path_id, path_name, cohort_days in PATHS:
     }
     print(f"  {path_name}: {len(courses)} courses, {len(users)} users")
 
-# Total courses across all paths combined
 all_course_ids   = {}
 all_course_names = {}
 for meta in path_meta.values():
@@ -104,7 +103,6 @@ for meta in path_meta.values():
 TOTAL_COURSES = len(all_course_ids)
 print(f"\nTotal courses across all paths: {TOTAL_COURSES}")
 
-# Build unified user list
 all_user_ids = {}
 for meta in path_meta.values():
     for uid, u in meta["users"].items():
@@ -122,7 +120,7 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
         print(f"  Skipping {name} — not a successkpi.com account")
         continue
 
-    # Check if user is active in Litmos
+    # Active user check
     url = f"{BASE}/users/{uid}?source=successkpi&format=json"
     req = urllib.request.Request(url, headers=HEADERS)
     try:
@@ -132,7 +130,7 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
         user_record = {}
     time.sleep(0.25)
     if not isinstance(user_record, dict) or not user_record.get('Active', True):
-        print(f"  Skipping {name} — inactive or unreadable")
+        print(f"  Skipping {name} — inactive")
         continue
 
     print(f"  [{i+1}/{len(all_user_ids)}] {name}")
@@ -140,10 +138,8 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
     user_courses = get(f"users/{uid}/courses")
     time.sleep(0.25)
 
-    # All courses across both paths for this user
     bc = [c for c in user_courses if c['Id'] in all_course_ids]
 
-    # Lock individual courses — once Complete, always Complete
     for c in bc:
         course_key = f"{uid}:{c['Id']}"
         if c.get('Complete'):
@@ -154,13 +150,11 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
     completed_courses = [c for c in bc if c.get('Complete')]
     progress_pct      = round(len(completed_courses) / TOTAL_COURSES * 100) if TOTAL_COURSES else 0
 
-    # Lock overall completion
     store_key = f"all:{uid}"
     if progress_pct == 100:
         completed_store[store_key] = True
     is_completed = completed_store.get(store_key, False)
 
-    # Dates
     all_dates = []
     for c in bc:
         for key in ('StartDate', 'DateCompleted'):
@@ -171,7 +165,6 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
     days_started = days_since(start_date)
     days_ago     = days_since(max(all_dates)) if all_dates else 9999
 
-    # EP: 10% per day, locks at 100% if overdue and not complete
     days_elapsed = min(days_started, COHORT_DAYS) if start_date else None
     ep = min(round(days_elapsed / COHORT_DAYS * 100), 100) if days_elapsed is not None else 0
     if days_started > COHORT_DAYS and not is_completed:
@@ -182,14 +175,12 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
     quiz_avg = round(sum(scores)/len(scores)) if scores else 0
     failed   = len([c for c in bc if c.get('StartDate') and (c.get('PercentageComplete') or 0) < 70 and not c.get('Complete')])
 
-    # R-Index
     prog_score  = min(100, round((progress_pct / ep) * 100)) if ep > 0 else 100
     login_score = (100 if days_ago == 0 else 90 if days_ago == 1 else 75 if days_ago == 2 else
                    60 if days_ago == 3 else 35 if days_ago <= 5 else 10 if days_ago < 9999 else 0)
     quiz_score  = min(100, quiz_avg)
     ri          = round(prog_score * 0.45 + login_score * 0.35 + quiz_score * 0.20)
 
-    # Bucket
     if start_date is None and not any(c.get('StartDate') for c in bc):
         bucket = "not_started"
     elif is_completed:
@@ -197,7 +188,6 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
     else:
         bucket = "active"
 
-    # Status
     if is_completed:
         status = "green"
     elif diff < -40 or failed > 3 or (days_ago > 3 and days_ago < 9999):
@@ -234,7 +224,7 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
 
     all_learners.append({
         "name":            name,
-        "email":           u.get("Email",""),
+        "email":           user_record.get("Email", u.get("Email","")),
         "progress":        progress_pct,
         "ep":              ep,
         "diff":            diff,
@@ -265,8 +255,7 @@ with open(COMPLETED_FILE, 'w') as f:
     json.dump(completed_store, f, indent=2)
 print(f"\nCompletions saved: {len(completed_store)} total")
 
-from zoneinfo import ZoneInfo
-generated_at = datetime.now(tz=ZoneInfo("America/New_York")).strftime("%B %d, %Y at %I:%M %p")
+generated_at  = datetime.now(tz=ZoneInfo("America/New_York")).strftime("%B %d, %Y at %I:%M %p")
 learners_json = json.dumps(all_learners, ensure_ascii=False)
 print("Building dashboard HTML...")
 
@@ -459,6 +448,8 @@ css = """
   .tip-box { display: none; position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%); background: #1E293B; color: #F1F5F9; font-size: 11px; font-weight: 400; line-height: 1.5; padding: 6px 10px; border-radius: 6px; white-space: nowrap; z-index: 999; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
   .tip-box::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #1E293B; }
   .tip:hover .tip-box { display: block; }
+  .copy-btn { font-size: 12px; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 5px; color: var(--text-secondary); }
+  .copy-btn:hover { background: var(--blue-50); color: var(--brand-main); border-color: var(--brand-main); }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 """
 
@@ -679,6 +670,136 @@ function renderNotStartedTable() {
   }).join('');
 }
 
+// ── Course Statistics ──────────────────────────────────────────────────────
+var _currentCourseEmails = [];
+
+function buildCourseMap() {
+  var courseMap = {};
+  ALL_LEARNERS.forEach(function(l) {
+    l.courses.forEach(function(c) {
+      if (!courseMap[c.name]) courseMap[c.name] = { complete: [], in_progress: [], not_started: [] };
+      if (c.complete) courseMap[c.name].complete.push(l);
+      else if (c.started) courseMap[c.name].in_progress.push(l);
+      else courseMap[c.name].not_started.push(l);
+    });
+  });
+  return courseMap;
+}
+
+function renderCourseStats() {
+  var statusFilter = document.getElementById('csStatusFilter') ? document.getElementById('csStatusFilter').value : 'all';
+  var courseMap = buildCourseMap();
+  var tbody = document.getElementById('tbodyCourseStats');
+  if (!tbody) return;
+  tbody.innerHTML = Object.keys(courseMap).map(function(name) {
+    var c = courseMap[name];
+    var total = c.complete.length + c.in_progress.length + c.not_started.length;
+    var pct = total ? Math.round(c.complete.length / total * 100) : 0;
+    var show = statusFilter === 'all' ? total :
+               statusFilter === 'complete' ? c.complete.length :
+               statusFilter === 'in_progress' ? c.in_progress.length : c.not_started.length;
+    if (show === 0) return '';
+    var safeName = name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return '<tr onclick="showCourseDetail(\'' + safeName + '\',\'' + statusFilter + '\')">'
+      + '<td style="font-size:13px;font-weight:500;">' + name + '</td>'
+      + '<td><span class="pill pill-green">' + c.complete.length + '</span></td>'
+      + '<td><span class="pill pill-yellow">' + c.in_progress.length + '</span></td>'
+      + '<td><span class="pill" style="background:var(--gray-100);color:var(--text-secondary);border:1px solid var(--border);">' + c.not_started.length + '</span></td>'
+      + '<td><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;height:5px;background:var(--gray-100);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:var(--green-400);border-radius:3px;"></div></div><span style="font-size:12px;color:var(--text-secondary);">' + pct + '%</span></div></td>'
+      + '</tr>';
+  }).join('');
+  document.getElementById('courseDetailPanel').style.display = 'none';
+}
+
+function showCourseDetail(courseName, statusFilter) {
+  var courseMap = buildCourseMap();
+  var c = courseMap[courseName];
+  if (!c) return;
+  var learners = statusFilter === 'complete' ? c.complete :
+                 statusFilter === 'in_progress' ? c.in_progress :
+                 statusFilter === 'not_started' ? c.not_started :
+                 c.complete.concat(c.in_progress).concat(c.not_started);
+  var statusLabel = statusFilter === 'complete' ? 'Completed' :
+                    statusFilter === 'in_progress' ? 'In Progress' :
+                    statusFilter === 'not_started' ? 'Not Started' : 'All';
+  _currentCourseEmails = learners.map(function(l) { return l.email; }).filter(Boolean);
+
+  var existing = document.getElementById('inlineCourseDetail');
+  if (existing) existing.remove();
+
+  var rows = document.querySelectorAll('#tbodyCourseStats tr');
+  var targetRow = null;
+  rows.forEach(function(row) {
+    if (row.cells[0] && row.cells[0].textContent.trim() === courseName) targetRow = row;
+  });
+  if (!targetRow) return;
+
+  var detailRow = document.createElement('tr');
+  detailRow.id = 'inlineCourseDetail';
+  detailRow.innerHTML = '<td colspan="5" style="padding:0;background:var(--blue-50);">'
+    + '<div style="padding:14px 18px;">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
+    + '<div style="font-size:13px;font-weight:600;color:var(--text-primary);">' + courseName + ' — ' + statusLabel + ' (' + learners.length + ')</div>'
+    + '<button id="copyEmailBtn" class="copy-btn" onclick="copyEmails()"><i class="ti ti-copy"></i> Copy all ' + _currentCourseEmails.length + ' emails</button>'
+    + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;">'
+    + '<thead><tr style="background:var(--blue-100);">'
+    + '<th style="padding:7px 12px;font-size:11px;font-weight:600;color:var(--brand-dark);text-align:left;width:30%;">Name</th>'
+    + '<th style="padding:7px 12px;font-size:11px;font-weight:600;color:var(--brand-dark);text-align:left;width:35%;">Email</th>'
+    + '<th style="padding:7px 12px;font-size:11px;font-weight:600;color:var(--brand-dark);text-align:left;width:15%;">Status</th>'
+    + '<th style="padding:7px 12px;font-size:11px;font-weight:600;color:var(--brand-dark);text-align:left;width:20%;">Progress</th>'
+    + '</tr></thead><tbody id="tbodyCourseDetailRows">'
+    + learners.map(function(l, li) {
+        var c2 = l.courses.find(function(x) { return x.name === courseName; });
+        var badge = c2 && c2.complete ? '<span class="status-badge sb-green">Complete</span>' :
+                    c2 && c2.started  ? '<span class="status-badge sb-yellow">In Progress</span>' :
+                    '<span class="status-badge" style="background:var(--gray-100);color:var(--text-secondary);border:1px solid var(--border);">Not Started</span>';
+        var allIdx = ALL_LEARNERS.indexOf(l);
+        return '<tr id="csLearnerRow-' + li + '" style="border-bottom:1px solid var(--blue-100);cursor:pointer;" onclick="toggleLearnerCourses(' + li + ',' + allIdx + ',\'' + courseName.replace(/'/g,"\\'") + '\')">'
+          + '<td style="padding:8px 12px;font-size:13px;font-weight:500;color:var(--brand-main);">' + l.name + ' <i class="ti ti-chevron-down" style="font-size:11px;"></i></td>'
+          + '<td style="padding:8px 12px;font-size:12px;color:var(--text-secondary);">' + (l.email || '—') + '</td>'
+          + '<td style="padding:8px 12px;">' + badge + '</td>'
+          + '<td style="padding:8px 12px;font-size:12px;color:var(--text-secondary);">' + l.progress + '% (' + l.completedCount + '/' + l.totalCourses + ')</td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table></div></td>';
+
+  targetRow.insertAdjacentElement('afterend', detailRow);
+}
+
+function toggleLearnerCourses(li, allIdx, courseName) {
+  var existingExpand = document.getElementById('csExpand-' + li);
+  if (existingExpand) { existingExpand.remove(); return; }
+  var l = ALL_LEARNERS[allIdx];
+  var row = document.getElementById('csLearnerRow-' + li);
+  if (!row) return;
+  var expandRow = document.createElement('tr');
+  expandRow.id = 'csExpand-' + li;
+  expandRow.innerHTML = '<td colspan="4" style="padding:0;background:#fff;border-bottom:1px solid var(--blue-100);">'
+    + '<div style="padding:10px 18px 10px 32px;">'
+    + '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">All courses</div>'
+    + l.courses.map(function(c) {
+        var cls = c.complete ? 'sb-green' : c.started ? 'sb-yellow' : '';
+        var lbl = c.complete ? 'Complete' : c.started ? (c.pct || 0) + '% in progress' : 'Not started';
+        var style = !cls ? 'background:var(--gray-100);color:var(--text-secondary);border:1px solid var(--border);' : '';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--gray-100);">'
+          + '<span style="font-size:12px;color:var(--text-primary);">' + c.name + '</span>'
+          + '<span class="status-badge ' + cls + '" style="' + style + '">' + lbl + '</span>'
+          + '</div>';
+      }).join('')
+    + '</div></td>';
+  row.insertAdjacentElement('afterend', expandRow);
+}
+
+function copyEmails() {
+  if (!_currentCourseEmails.length) return;
+  navigator.clipboard.writeText(_currentCourseEmails.join(', ')).then(function() {
+    var btn = document.getElementById('copyEmailBtn');
+    btn.innerHTML = '<i class="ti ti-check"></i> Copied ' + _currentCourseEmails.length + '!';
+    setTimeout(function() { btn.innerHTML = '<i class="ti ti-copy"></i> Copy emails'; }, 2000);
+  });
+}
+
 function onSlider(changed) {
   var progEl  = document.getElementById('sliderProg');
   var loginEl = document.getElementById('sliderLogin');
@@ -785,6 +906,7 @@ html = (
 f'    <button class="tab-btn active" onclick="switchTab(\'active\',this)">Active Learners ({total_active})</button>\n'
 f'    <button class="tab-btn" onclick="switchTab(\'historical\',this);renderHistoricalTable()">Completed ({total_historical})</button>\n'
 f'    <button class="tab-btn" onclick="switchTab(\'not_started\',this);renderNotStartedTable()">Not Started ({total_not_started})</button>\n'
+'    <button class="tab-btn" onclick="switchTab(\'course_stats\',this);renderCourseStats()">Course Statistics</button>\n'
 '  </div>\n'
 '  <div id="tab-active" class="tab-content active">\n'
 '    <div class="controls-bar">\n'
@@ -896,6 +1018,31 @@ f'    <button class="tab-btn" onclick="switchTab(\'not_started\',this);renderNot
 '        <th style="width:35%">Learner</th><th style="width:45%">Email</th><th style="width:20%">Status</th>\n'
 '      </tr></thead><tbody id="tbodyNotStarted"></tbody></table>\n'
 '    </div>\n'
+'  </div>\n'
+'  <div id="tab-course_stats" class="tab-content">\n'
+'    <div class="controls-bar">\n'
+'      <span class="controls-label">Filter by status:</span>\n'
+'      <select class="window-select" id="csStatusFilter" onchange="renderCourseStats()">\n'
+'        <option value="all">All learners</option>\n'
+'        <option value="complete">Completed</option>\n'
+'        <option value="in_progress">In Progress</option>\n'
+'        <option value="not_started">Not Started</option>\n'
+'      </select>\n'
+'    </div>\n'
+'    <div class="learner-table-wrap">\n'
+'      <div class="table-header">\n'
+'        <div class="table-title"><i class="ti ti-chart-bar"></i> Course Statistics <span class="table-hint">— click a course to see learners</span></div>\n'
+'      </div>\n'
+'      <table><thead><tr>\n'
+'        <th style="width:35%">Course</th>\n'
+'        <th style="width:15%">Completed</th>\n'
+'        <th style="width:15%">In Progress</th>\n'
+'        <th style="width:15%">Not Started</th>\n'
+'        <th style="width:20%">Completion Rate</th>\n'
+'      </tr></thead>\n'
+'      <tbody id="tbodyCourseStats"></tbody></table>\n'
+'    </div>\n'
+
 '  </div>\n'
 '  <div class="footer">SuccessKPI Enablement Command Center &nbsp;&middot;&nbsp; Refreshed ' + generated_at + ' &nbsp;&middot;&nbsp; ' + str(len(all_learners)) + ' total learners &nbsp;&middot;&nbsp; ' + str(TOTAL_COURSES) + ' courses</div>\n'
 '</div>\n'
