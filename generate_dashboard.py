@@ -123,8 +123,17 @@ for i, (uid, u) in enumerate(all_user_ids.items()):
         continue
 
     # Check if user is active in Litmos
-    user_record = get(f"users/{uid}")
+    url = f"{BASE}/users/{uid}?source=successkpi&format=json"
+    req = urllib.request.Request(url, headers=HEADERS)
+    try:
+        with urllib.request.urlopen(req) as r:
+            user_record = json.loads(r.read().decode())
+    except:
+        user_record = {}
     time.sleep(0.25)
+    if not isinstance(user_record, dict) or not user_record.get('Active', True):
+        print(f"  Skipping {name} — inactive or unreadable")
+        continue
 
     print(f"  [{i+1}/{len(all_user_ids)}] {name}")
 
@@ -256,7 +265,8 @@ with open(COMPLETED_FILE, 'w') as f:
     json.dump(completed_store, f, indent=2)
 print(f"\nCompletions saved: {len(completed_store)} total")
 
-generated_at  = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+from zoneinfo import ZoneInfo
+generated_at = datetime.now(tz=ZoneInfo("America/New_York")).strftime("%B %d, %Y at %I:%M %p")
 learners_json = json.dumps(all_learners, ensure_ascii=False)
 print("Building dashboard HTML...")
 
