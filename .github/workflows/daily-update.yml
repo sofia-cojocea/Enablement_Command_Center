@@ -2,8 +2,8 @@ name: Daily Dashboard Update
 
 on:
   schedule:
-    - cron: '0 15 * * *'  
-  workflow_dispatch:      
+    - cron: '0 12-22/2 * * 1-5'  # every 2 hours, 8am-6pm ET (UTC-4), weekdays only
+  workflow_dispatch:               # lets you trigger it manually too
 
 jobs:
   update-dashboard:
@@ -28,6 +28,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add index.html
-          git commit -m "daily dashboard update" || echo "No changes"
+          git add index.html completed.json
+          git commit -m "dashboard update $(date +'%Y-%m-%d %H:%M')" || echo "No changes"
           git push --force
