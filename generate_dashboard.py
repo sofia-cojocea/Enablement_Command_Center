@@ -686,13 +686,94 @@ function buildCourseMap() {
   return courseMap;
 }
 
+var _selectedCourses = new Set();
+
+function initCourseMultiSelect() {
+  var courseMap = buildCourseMap();
+  var container = document.getElementById('csMultiSelect');
+  if (!container) return;
+  container.innerHTML = Object.keys(courseMap).map(function(name) {
+    var safeName = name.replace(/"/g,'&quot;');
+    return '<label style="display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--text-primary);transition:background 0.1s;" onmouseover="this.style.background=\'var(--blue-50)\'" onmouseout="this.style.background=_selectedCourses.has(this.dataset.name)?\'var(--blue-50)\':\'\'" data-name="' + safeName + '">'
+      + '<input type="checkbox" style="accent-color:var(--brand-main);" onchange="toggleCourseSelect(this,\'' + name.replace(/'/g,"\\'") + '\')">'
+      + '<span>' + name + '</span>'
+      + '</label>';
+  }).join('');
+}
+
+function toggleCourseSelect(checkbox, courseName) {
+  if (checkbox.checked) _selectedCourses.add(courseName);
+  else _selectedCourses.delete(courseName);
+  renderCourseStats();
+}
+
+function selectAllCourses() {
+  var courseMap = buildCourseMap();
+  _selectedCourses = new Set(Object.keys(courseMap));
+  document.querySelectorAll('#csMultiSelect input[type=checkbox]').forEach(function(cb) { cb.checked = true; });
+  renderCourseStats();
+}
+
+function clearCourseSelection() {
+  _selectedCourses = new Set();
+  document.querySelectorAll('#csMultiSelect input[type=checkbox]').forEach(function(cb) { cb.checked = false; });
+  renderCourseStats();
+}
+
 function renderCourseStats() {
   var statusFilter = document.getElementById('csStatusFilter') ? document.getElementById('csStatusFilter').value : 'all';
   var courseMap = buildCourseMap();
   var tbody = document.getElementById('tbodyCourseStats');
   if (!tbody) return;
-  tbody.innerHTML = Object.keys(courseMap).map(function(name) {
+
+  var coursesToShow = _selectedCourses.size > 0 ? Array.from(_selectedCourses) : Object.keys(courseMap);
+
+  // Multi-course: show each as its own section with a combined copy-all button at top
+  if (_selectedCourses.size > 1) {
+    var allEmails = [];
+    var sections = coursesToShow.map(function(name, sectionIdx) {
+      var c = courseMap[name];
+      if (!c) return '';
+      var learners = statusFilter === 'complete' ? c.complete :
+                     statusFilter === 'in_progress' ? c.in_progress :
+                     statusFilter === 'not_started' ? c.not_started :
+                     c.complete.concat(c.in_progress).concat(c.not_started);
+      learners.forEach(function(l) { if (l.email && allEmails.indexOf(l.email) === -1) allEmails.push(l.email); });
+      var statusLabel = statusFilter === 'complete' ? 'Completed' : statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'not_started' ? 'Not Started' : 'All';
+      return '<tr><td colspan="5" style="padding:0;">'
+        + '<div style="padding:12px 18px 4px;background:var(--blue-50);border-top:' + (sectionIdx > 0 ? '8px solid var(--page-bg)' : '0') + ';">'
+        + '<div style="font-size:12px;font-weight:600;color:var(--brand-dark);margin-bottom:8px;">' + name + ' — ' + statusLabel + ' (' + learners.length + ')</div>'
+        + '<table style="width:100%;border-collapse:collapse;">'
+        + '<thead><tr style="background:var(--blue-100);">'
+        + '<th style="padding:6px 12px;font-size:11px;font-weight:600;color:var(--brand-dark);text-align:left;width:30%;">Name</th>'
+        + '<th style="padding:6px 12px;font-size:11px;font-weight:600;color:var(--brand-dark);text-align:left;width:40%;">Email</th>'
+        + '<th style="padding:6px 12px;font-size:11px;font-weight:600;color:var(--brand-dark);text-align:left;width:30%;">Progress</th>'
+        + '</tr></thead><tbody>'
+        + learners.map(function(l, li) {
+            var allIdx = ALL_LEARNERS.indexOf(l);
+            var rowId = 'csLearnerRow-' + sectionIdx + '-' + li;
+            return '<tr id="' + rowId + '" style="border-bottom:1px solid var(--blue-100);cursor:pointer;" onclick="toggleLearnerCourses(\'' + rowId + '\',' + allIdx + ')">'
+              + '<td style="padding:7px 12px;font-size:13px;font-weight:500;color:var(--brand-main);">' + l.name + ' <i class="ti ti-chevron-down" style="font-size:11px;"></i></td>'
+              + '<td style="padding:7px 12px;font-size:12px;color:var(--text-secondary);">' + (l.email || '—') + '</td>'
+              + '<td style="padding:7px 12px;font-size:12px;color:var(--text-secondary);">' + l.progress + '% (' + l.completedCount + '/' + l.totalCourses + ')</td>'
+              + '</tr>';
+          }).join('')
+        + '</tbody></table></div></td></tr>';
+    }).join('');
+
+    _currentCourseEmails = allEmails;
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:10px 18px;background:var(--surface);border-bottom:1px solid var(--border);">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;">'
+      + '<span style="font-size:12px;color:var(--text-secondary);">' + coursesToShow.length + ' courses selected</span>'
+      + '<button id="copyEmailBtn" class="copy-btn" onclick="copyEmails()"><i class="ti ti-copy"></i> Copy all ' + allEmails.length + ' unique emails</button>'
+      + '</div></td></tr>' + sections;
+    return;
+  }
+
+  // Single or no course selected — show course summary rows
+  tbody.innerHTML = coursesToShow.map(function(name) {
     var c = courseMap[name];
+    if (!c) return '';
     var total = c.complete.length + c.in_progress.length + c.not_started.length;
     var pct = total ? Math.round(c.complete.length / total * 100) : 0;
     var show = statusFilter === 'all' ? total :
@@ -708,7 +789,6 @@ function renderCourseStats() {
       + '<td><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;height:5px;background:var(--gray-100);border-radius:3px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:var(--green-400);border-radius:3px;"></div></div><span style="font-size:12px;color:var(--text-secondary);">' + pct + '%</span></div></td>'
       + '</tr>';
   }).join('');
-  document.getElementById('courseDetailPanel').style.display = 'none';
 }
 
 function showCourseDetail(courseName, statusFilter) {
@@ -755,7 +835,7 @@ function showCourseDetail(courseName, statusFilter) {
                     c2 && c2.started  ? '<span class="status-badge sb-yellow">In Progress</span>' :
                     '<span class="status-badge" style="background:var(--gray-100);color:var(--text-secondary);border:1px solid var(--border);">Not Started</span>';
         var allIdx = ALL_LEARNERS.indexOf(l);
-        return '<tr id="csLearnerRow-' + li + '" style="border-bottom:1px solid var(--blue-100);cursor:pointer;" onclick="toggleLearnerCourses(' + li + ',' + allIdx + ',\'' + courseName.replace(/'/g,"\\'") + '\')">'
+        return '<tr id="csLearnerRow-' + li + '" style="border-bottom:1px solid var(--blue-100);cursor:pointer;" onclick="toggleLearnerCourses(\'csLearnerRow-' + li + '\',' + allIdx + ')">'
           + '<td style="padding:8px 12px;font-size:13px;font-weight:500;color:var(--brand-main);">' + l.name + ' <i class="ti ti-chevron-down" style="font-size:11px;"></i></td>'
           + '<td style="padding:8px 12px;font-size:12px;color:var(--text-secondary);">' + (l.email || '—') + '</td>'
           + '<td style="padding:8px 12px;">' + badge + '</td>'
@@ -767,18 +847,25 @@ function showCourseDetail(courseName, statusFilter) {
   targetRow.insertAdjacentElement('afterend', detailRow);
 }
 
-function toggleLearnerCourses(li, allIdx, courseName) {
-  var existingExpand = document.getElementById('csExpand-' + li);
+function toggleLearnerCourses(rowId, allIdx) {
+  var existingExpand = document.getElementById('csExpand-' + rowId);
   if (existingExpand) { existingExpand.remove(); return; }
   var l = ALL_LEARNERS[allIdx];
-  var row = document.getElementById('csLearnerRow-' + li);
+  var row = document.getElementById(rowId);
   if (!row) return;
+
+  // Only show courses that are currently selected (or all if none selected)
+  var coursesToShow = _selectedCourses.size > 0
+    ? l.courses.filter(function(c) { return _selectedCourses.has(c.name); })
+    : l.courses;
+
   var expandRow = document.createElement('tr');
-  expandRow.id = 'csExpand-' + li;
-  expandRow.innerHTML = '<td colspan="4" style="padding:0;background:#fff;border-bottom:1px solid var(--blue-100);">'
+  expandRow.id = 'csExpand-' + rowId;
+  var colspan = row.cells.length;
+  expandRow.innerHTML = '<td colspan="' + colspan + '" style="padding:0;background:#fff;border-bottom:1px solid var(--blue-100);">'
     + '<div style="padding:10px 18px 10px 32px;">'
-    + '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">All courses</div>'
-    + l.courses.map(function(c) {
+    + '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Selected courses</div>'
+    + coursesToShow.map(function(c) {
         var cls = c.complete ? 'sb-green' : c.started ? 'sb-yellow' : '';
         var lbl = c.complete ? 'Complete' : c.started ? (c.pct || 0) + '% in progress' : 'Not started';
         var style = !cls ? 'background:var(--gray-100);color:var(--text-secondary);border:1px solid var(--border);' : '';
@@ -873,6 +960,7 @@ document.getElementById('modalOverlay').addEventListener('click', function(e) { 
 refreshActiveView();
 renderHistoricalTable();
 renderNotStartedTable();
+initCourseMultiSelect();
 """
 
 js = js.replace('__LEARNERS__', learners_json)
@@ -1020,18 +1108,28 @@ f'    <button class="tab-btn" onclick="switchTab(\'not_started\',this);renderNot
 '    </div>\n'
 '  </div>\n'
 '  <div id="tab-course_stats" class="tab-content">\n'
-'    <div class="controls-bar">\n'
-'      <span class="controls-label">Filter by status:</span>\n'
-'      <select class="window-select" id="csStatusFilter" onchange="renderCourseStats()">\n'
-'        <option value="all">All learners</option>\n'
-'        <option value="complete">Completed</option>\n'
-'        <option value="in_progress">In Progress</option>\n'
-'        <option value="not_started">Not Started</option>\n'
-'      </select>\n'
+'    <div style="display:flex;gap:14px;margin-bottom:16px;align-items:flex-start;">\n'
+'      <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;">\n'
+'        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">Filter by course</div>\n'
+'        <div style="display:flex;gap:6px;margin-bottom:8px;">\n'
+'          <button onclick="selectAllCourses()" style="font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--border);background:var(--gray-50);cursor:pointer;font-family:inherit;">Select all</button>\n'
+'          <button onclick="clearCourseSelection()" style="font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--border);background:var(--gray-50);cursor:pointer;font-family:inherit;">Clear</button>\n'
+'        </div>\n'
+'        <div id="csMultiSelect" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;"></div>\n'
+'      </div>\n'
 '    </div>\n'
 '    <div class="learner-table-wrap">\n'
 '      <div class="table-header">\n'
-'        <div class="table-title"><i class="ti ti-chart-bar"></i> Course Statistics <span class="table-hint">— click a course to see learners</span></div>\n'
+'        <div class="table-title"><i class="ti ti-chart-bar"></i> Course Statistics <span class="table-hint">— click a course to see learners · select multiple to combine</span></div>\n'
+'        <div style="display:flex;align-items:center;gap:8px;">\n'
+'          <span style="font-size:12px;color:var(--text-secondary);">Status:</span>\n'
+'          <select class="window-select" id="csStatusFilter" onchange="renderCourseStats()">\n'
+'            <option value="all">All statuses</option>\n'
+'            <option value="complete">Completed</option>\n'
+'            <option value="in_progress">In Progress</option>\n'
+'            <option value="not_started">Not Started</option>\n'
+'          </select>\n'
+'        </div>\n'
 '      </div>\n'
 '      <table><thead><tr>\n'
 '        <th style="width:35%">Course</th>\n'
@@ -1042,7 +1140,6 @@ f'    <button class="tab-btn" onclick="switchTab(\'not_started\',this);renderNot
 '      </tr></thead>\n'
 '      <tbody id="tbodyCourseStats"></tbody></table>\n'
 '    </div>\n'
-
 '  </div>\n'
 '  <div class="footer">SuccessKPI Enablement Command Center &nbsp;&middot;&nbsp; Refreshed ' + generated_at + ' &nbsp;&middot;&nbsp; ' + str(len(all_learners)) + ' total learners &nbsp;&middot;&nbsp; ' + str(TOTAL_COURSES) + ' courses</div>\n'
 '</div>\n'
